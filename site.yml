@@ -1,0 +1,249 @@
+---
+- name: Configure All Nodes
+  hosts: all
+  become: yes
+  become_method: sudo
+
+  vars_files:
+    - group_vars/proxy.yml
+    - group_vars/crictl.yml
+    - group_vars/kubernetes.yml
+
+  environment:
+    https_proxy: http://fodev.org:8118
+
+  tasks:
+    ### Enable iptables Bridged Traffic on all the Nodes
+
+    - name: Create /etc/modules-load.d/k8s.conf with overlay and br_netfilter
+      lineinfile:
+        path: /etc/modules-load.d/k8s.conf
+        create: yes
+        state: present
+        line: "{{ item }}"
+      with_items:
+        - overlay
+        - br_netfilter
+
+    - name: Load overlay kernel module
+      shell: modprobe overlay
+
+    - name: Load br_netfilter kernel module
+      shell: modprobe br_netfilter
+
+    - name: Sysctl params required by setup, params persist across reboots
+      lineinfile:
+        path: /etc/sysctl.d/k8s.conf
+        create: yes
+        state: present
+        line: "{{ item }}"
+      with_items:
+        - net.bridge.bridge-nf-call-iptables=1
+        - net.bridge.bridge-nf-call-ip6tables=1
+        - net.ipv4.ip_forward=1
+
+    - name: Apply sysctl configuration immediately
+      command: sysctl --system
+
+    ### Disable swap on all the Nodes
+
+    - name: Disable SWAP since kubernetes can't work with swap enabled (1/2)
+      shell: |
+        swapoff -a
+
+    - name: Disable SWAP in fstab since kubernetes can't work with swap enabled (2/2)
+      replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    ### Install CRI-O Runtime On All The Nodes
+
+    # - name: Update package list cache
+    #   apt:
+    #     update_cache: yes
+    #   retries: 3
+
+    - name: Install required system packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - software-properties-common
+        - curl
+        - apt-transport-https
+        - ca-certificates
+      retries: 3
+
+    - name: Import CRI-O GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key
+        keyring: /etc/apt/keyrings/cri-o-apt-keyring.gpg
+      retries: 3
+
+    - name: Add CRI-O repository to sources list
+      lineinfile:
+        path: /etc/apt/sources.list.d/cri-o.list
+        create: yes
+        state: present
+        line: "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /"
+
+    # - name: Update package list cache
+    #   apt:
+    #     update_cache: yes
+    #   retries: 3
+
+    - name: Install CRI-O container runtime
+      apt:
+        name: cri-o
+        state: present
+      retries: 3
+
+    - name: Ensure directory exists for CRI-O service overrides
+      file:
+        path: /etc/systemd/system/crio.service.d/
+        state: directory
+        mode: 0755
+
+    - name: Create CRI-O service environment file
+      template:
+        src: crio.service.env.j2
+        dest: /etc/systemd/system/crio.service.d/00-proxy.conf
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Reload systemd service manager
+      systemd:
+        name: daemon-reload
+
+    - name: Enable and start CRI-O service
+      service:
+        name: crio
+        enabled: yes
+        state: restarted
+
+    ### Download and install crictl
+
+    # - name: Download crictl archive
+    #   get_url:
+    #     url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+    #     dest: /tmp/crictl.tar.gz
+    #     mode: 0644
+    #   retries: 3
+
+    # - name: Extract crictl binary
+    #   unarchive:
+    #     src: /tmp/crictl.tar.gz
+    #     dest: /usr/local/bin
+    #     remote_src: yes
+    #     owner: root 
+    #     group: root 
+    #     mode: 0755
+
+    # - name: Clean up downloaded archive
+    #   file:
+    #     path: /tmp/crictl.tar.gz
+    #     state: absent
+
+    ### Install Kubeadm & Kubelet & Kubectl on all Nodes
+
+    - name: Download and import Kubernetes GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      retries: 3
+
+
+    - name: Add Kubernetes repository source
+      lineinfile:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        create: yes
+        state: present
+        line: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /"
+
+    # - name: Update package list cache
+    #   apt:
+    #     update_cache: yes
+    #   retries: 3
+
+    - name: Install Kubernetes packages
+      apt:
+        name:
+          - kubelet={{ kubelet_version }}
+          - kubectl={{ kubectl_version }}
+          - kubeadm={{ kubeadm_version }}
+        state: present
+      retries: 3
+
+    # - name: Hold Kubernetes packages (prevent upgrades)
+    #   dpkg_selections:
+    #       name:
+    #       - kubelet
+    #       - kubeadm
+    #       - kubectl
+    #       selection: hold
+    #   tags:
+    #    - hold
+
+- name: Configure manager nodes
+  hosts: managers
+  become: yes
+  become_method: sudo
+
+  tasks:
+    ### Initialize Kubeadm On Master Node To Setup Control Plane
+    - name: Force reset cluster
+      shell: kubeadm reset -f
+
+    - name: Initialize the cluster
+      shell: kubeadm init --pod-network-cidr=10.244.0.0/16
+
+    - name: Create kubectl configuration directory
+      file:
+        path: /home/{{ ansible_user }}/.kube
+        state: directory
+        mode: 0755
+        owner: ubuntu
+        group: ubuntu
+      tags: dir
+
+    - name: Copy admin configuration to kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+      tags: dir
+
+    ### Install Calico Network Plugin for Pod Networking
+
+    - name: Install Pod network
+      shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+      become: no
+      retries: 3
+      delay: 10
+
+    ### Join Worker Nodes To Kubernetes Master Node
+
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      become: no
+      register: join_command_raw
+
+    - name: Set join command
+      set_fact:
+        join_command: "{{ join_command_raw.stdout_lines[0] }}"
+
+- name: Join Cluster
+  hosts: workers
+  become: yes
+  become_method: sudo
+
+  tasks:
+    - name: Force reset
+      shell: kubeadm reset -f
+
+    - name: Join cluster
+      shell: "{{ hostvars['manager'].join_command }}"

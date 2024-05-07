@@ -1,0 +1,10 @@
+managers:
+  hosts:
+    manager:
+      ansible_host: 37.152.178.70
+      ansible_user: ubuntu
+workers:
+  hosts:
+    node1:
+      ansible_host: 37.152.182.161
+      ansible_user: ubuntu
