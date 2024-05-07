@@ -6,7 +6,7 @@ This Ansible project automates the deployment of a Kubernetes cluster with a sin
 ## Requirements
 
 ### Operating System:
-Master and Worker Nodes: Ubuntu 20.04 LTS (or compatible)
+Master and Worker Nodes: Ubuntu 22.04 LTS (or compatible)
 
 ### Software:
 - Ansible
