@@ -59,10 +59,10 @@
 
     ### Install CRI-O Runtime On All The Nodes
 
-    # - name: Update package list cache
-    #   apt:
-    #     update_cache: yes
-    #   retries: 3
+    - name: Update package list cache
+      apt:
+        update_cache: yes
+      retries: 3
 
     - name: Install required system packages
       apt:
@@ -88,10 +88,10 @@
         state: present
         line: "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /"
 
-    # - name: Update package list cache
-    #   apt:
-    #     update_cache: yes
-    #   retries: 3
+    - name: Update package list cache
+      apt:
+        update_cache: yes
+      retries: 3
 
     - name: Install CRI-O container runtime
       apt:
@@ -125,26 +125,26 @@
 
     ### Download and install crictl
 
-    # - name: Download crictl archive
-    #   get_url:
-    #     url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
-    #     dest: /tmp/crictl.tar.gz
-    #     mode: 0644
-    #   retries: 3
+    - name: Download crictl archive
+      get_url:
+        url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        dest: /tmp/crictl.tar.gz
+        mode: 0644
+      retries: 3
 
-    # - name: Extract crictl binary
-    #   unarchive:
-    #     src: /tmp/crictl.tar.gz
-    #     dest: /usr/local/bin
-    #     remote_src: yes
-    #     owner: root 
-    #     group: root 
-    #     mode: 0755
+    - name: Extract crictl binary
+      unarchive:
+        src: /tmp/crictl.tar.gz
+        dest: /usr/local/bin
+        remote_src: yes
+        owner: root 
+        group: root 
+        mode: 0755
 
-    # - name: Clean up downloaded archive
-    #   file:
-    #     path: /tmp/crictl.tar.gz
-    #     state: absent
+    - name: Clean up downloaded archive
+      file:
+        path: /tmp/crictl.tar.gz
+        state: absent
 
     ### Install Kubeadm & Kubelet & Kubectl on all Nodes
 
@@ -162,10 +162,10 @@
         state: present
         line: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /"
 
-    # - name: Update package list cache
-    #   apt:
-    #     update_cache: yes
-    #   retries: 3
+    - name: Update package list cache
+      apt:
+        update_cache: yes
+      retries: 3
 
     - name: Install Kubernetes packages
       apt:
